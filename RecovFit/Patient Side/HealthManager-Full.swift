@@ -8,6 +8,7 @@
 import SwiftUI
 import Combine
 import CoreMotion
+import UIKit
 
 // MARK: - Health Manager with Real CoreMotion Pedometer Support
 class SimulatedHealthManager: NSObject, ObservableObject {
@@ -20,11 +21,13 @@ class SimulatedHealthManager: NSObject, ObservableObject {
     @Published var weeklyStepsAverage: Int = 0
     @Published var calculatedCalories: Int = 0
     @Published var isLiveTracking: Bool = false
+    @Published var isPermissionDenied: Bool = false
+    @Published var isRefreshing: Bool = false
+    @Published var motionStatusText: String = "Active"
     
     // MARK: - CoreMotion and Data Storage
     private let pedometer = CMPedometer()
-    private var baseSteps: Int = 0
-    private var lastUpdateDate: Date = Date()
+    private var isTrackingActive: Bool = false
     
     // UserDefaults keys for persistence
     private let stepsKey = "savedSteps"
@@ -73,7 +76,29 @@ class SimulatedHealthManager: NSObject, ObservableObject {
         loadSavedData()
         checkAndResetForNewDay()
         calculateInitialSleep()
+        setupLifecycleObservers()
         startRealTimeUpdates()
+    }
+    
+    // MARK: - Lifecycle Observers (Foreground sync when returning from pocket/lock)
+    private func setupLifecycleObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppForeground),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func handleAppForeground() {
+        print("📱 [RecovFit CoreMotion] App returned to foreground, querying hardware steps...")
+        refreshAllData()
     }
     
     // MARK: - Load Saved Data
@@ -81,8 +106,7 @@ class SimulatedHealthManager: NSObject, ObservableObject {
         if let savedDate = UserDefaults.standard.object(forKey: dateKey) as? Date {
             let calendar = Calendar.current
             if calendar.isDateInToday(savedDate) {
-                baseSteps = UserDefaults.standard.integer(forKey: stepsKey)
-                currentSteps = baseSteps
+                currentSteps = UserDefaults.standard.integer(forKey: stepsKey)
                 sleepHours = UserDefaults.standard.double(forKey: sleepKey)
                 stepStreak = UserDefaults.standard.integer(forKey: streakKey)
                 weeklyStepsAverage = UserDefaults.standard.integer(forKey: weeklyKey)
@@ -111,7 +135,6 @@ class SimulatedHealthManager: NSObject, ObservableObject {
                 updateWeeklyAverage(newDaySteps: previousSteps)
                 
                 currentSteps = 0
-                baseSteps = 0
                 caloriesBurned = 0
                 calculatedCalories = 0
                 
@@ -138,37 +161,98 @@ class SimulatedHealthManager: NSObject, ObservableObject {
         UserDefaults.standard.set(sleepHours, forKey: sleepKey)
     }
     
-    // MARK: - Start Real-Time Updates (Real motion tracking without false increments)
+    // MARK: - Start Real-Time Updates (Real CoreMotion Tracking)
     func startRealTimeUpdates() {
-        if CMPedometer.isStepCountingAvailable() {
-            isLiveTracking = true
-            let calendar = Calendar.current
-            let startOfDay = calendar.startOfDay(for: Date())
-            
-            // Query today's steps so far
-            pedometer.queryPedometerData(from: startOfDay, to: Date()) { [weak self] data, error in
-                guard let self = self, let data = data, error == nil else { return }
+        guard CMPedometer.isStepCountingAvailable() else {
+            // Simulator or device without step coprocessor: keep static data (no fake timer)
+            DispatchQueue.main.async {
+                self.isLiveTracking = false
+                self.motionStatusText = "Active"
+                self.calculateCaloriesFromSteps()
+            }
+            return
+        }
+        
+        // Check permission if known
+        if #available(iOS 11.0, *) {
+            let status = CMPedometer.authorizationStatus()
+            if status == .denied || status == .restricted {
                 DispatchQueue.main.async {
-                    self.currentSteps = data.numberOfSteps.intValue
-                    self.baseSteps = self.currentSteps
+                    self.isPermissionDenied = true
+                    self.isLiveTracking = false
+                    self.motionStatusText = "Permission Needed"
+                }
+                return
+            }
+        }
+        
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        
+        // Reset any existing streaming updates cleanly
+        pedometer.stopUpdates()
+        isTrackingActive = false
+        
+        // 1. Immediately query hardware coprocessor for today's cumulative steps so far
+        pedometer.queryPedometerData(from: startOfDay, to: Date()) { [weak self] data, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let error = error {
+                    self.handlePedometerError(error)
+                    return
+                }
+                
+                if let data = data {
+                    self.isPermissionDenied = false
+                    let count = data.numberOfSteps.intValue
+                    self.currentSteps = count
                     self.calculateCaloriesFromSteps()
                     self.saveData()
+                    print("👟 [RecovFit CoreMotion] Initial steps today: \(count)")
                 }
             }
-            
-            // Start live updates from now - only updates when physical steps are taken
-            pedometer.startUpdates(from: Date()) { [weak self] data, error in
-                guard let self = self, let data = data, error == nil else { return }
-                DispatchQueue.main.async {
-                    self.currentSteps = self.baseSteps + data.numberOfSteps.intValue
+        }
+        
+        // 2. Start continuous live updates from midnight (startOfDay).
+        // CMPedometer continuously feeds the aggregate step count from startOfDay to right now.
+        // As you walk, data.numberOfSteps delivers the up-to-date total steps for today.
+        pedometer.startUpdates(from: startOfDay) { [weak self] data, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let error = error {
+                    self.handlePedometerError(error)
+                    return
+                }
+                
+                if let data = data {
+                    self.isPermissionDenied = false
+                    self.isLiveTracking = true
+                    self.motionStatusText = "Live"
+                    let count = data.numberOfSteps.intValue
+                    self.currentSteps = count
                     self.calculateCaloriesFromSteps()
                     self.saveData()
+                    print("🚶 [RecovFit CoreMotion] Live steps updated: \(count)")
                 }
             }
-        } else {
-            // Simulator or device without step hardware: Keep steps static (do NOT run fake timer)
-            isLiveTracking = false
-            calculateCaloriesFromSteps()
+        }
+        
+        isTrackingActive = true
+        DispatchQueue.main.async {
+            self.isLiveTracking = true
+            self.motionStatusText = "Live"
+        }
+    }
+    
+    // MARK: - Error Handling
+    private func handlePedometerError(_ error: Error) {
+        print("⚠️ [RecovFit CoreMotion] Error: \(error.localizedDescription)")
+        let nsError = error as NSError
+        // CMErrorDomain code 105 is CMErrorMotionActivityNotAuthorized
+        if nsError.domain == CMErrorDomain && nsError.code == 105 {
+            self.isPermissionDenied = true
+            self.isLiveTracking = false
+            self.motionStatusText = "Permission Needed"
         }
     }
     
@@ -202,22 +286,40 @@ class SimulatedHealthManager: NSObject, ObservableObject {
         weeklyStepsAverage = (currentAverage * 6 + newDaySteps) / 7
     }
     
-    // MARK: - Manual Data Refresh
+    // MARK: - Manual Data Refresh (Hardware Query)
     func refreshAllData() {
-        if CMPedometer.isStepCountingAvailable() {
-            let calendar = Calendar.current
-            let startOfDay = calendar.startOfDay(for: Date())
-            pedometer.queryPedometerData(from: startOfDay, to: Date()) { [weak self] data, error in
-                guard let self = self, let data = data, error == nil else { return }
-                DispatchQueue.main.async {
-                    self.currentSteps = data.numberOfSteps.intValue
-                    self.baseSteps = self.currentSteps
+        guard CMPedometer.isStepCountingAvailable() else {
+            loadSavedData()
+            return
+        }
+        
+        isRefreshing = true
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        
+        pedometer.queryPedometerData(from: startOfDay, to: Date()) { [weak self] data, error in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                self.isRefreshing = false
+                if let error = error {
+                    self.handlePedometerError(error)
+                    return
+                }
+                
+                if let data = data {
+                    self.isPermissionDenied = false
+                    let count = data.numberOfSteps.intValue
+                    self.currentSteps = count
                     self.calculateCaloriesFromSteps()
                     self.saveData()
+                    print("🔄 [RecovFit CoreMotion] Manual refresh steps: \(count)")
                 }
             }
-        } else {
-            loadSavedData()
+        }
+        
+        // Also ensure live streaming is engaged
+        if !isTrackingActive {
+            startRealTimeUpdates()
         }
     }
     
@@ -230,12 +332,14 @@ class SimulatedHealthManager: NSObject, ObservableObject {
     // MARK: - Stop Updates
     func stopPeriodicUpdates() {
         pedometer.stopUpdates()
+        isTrackingActive = false
         isLiveTracking = false
         saveData()
     }
     
     // MARK: - Cleanup
     deinit {
+        NotificationCenter.default.removeObserver(self)
         stopPeriodicUpdates()
     }
 }

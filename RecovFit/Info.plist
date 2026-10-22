@@ -17,27 +17,9 @@
 				<true/>
 				<key>NSIncludesSubdomains</key>
 				<true/>
-				<key>NSMotionUsageDescription</key>
-	<string>RecovFit requires motion access to accurately track your daily steps and physical activity.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>RecovFit requires camera access for patient consultations and medical document scanning.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>RecovFit requires microphone access for doctor-patient consultations.</string>
-</dict>
-			<key>NSMotionUsageDescription</key>
-	<string>RecovFit requires motion access to accurately track your daily steps and physical activity.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>RecovFit requires camera access for patient consultations and medical document scanning.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>RecovFit requires microphone access for doctor-patient consultations.</string>
-</dict>
-		<key>NSMotionUsageDescription</key>
-	<string>RecovFit requires motion access to accurately track your daily steps and physical activity.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>RecovFit requires camera access for patient consultations and medical document scanning.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>RecovFit requires microphone access for doctor-patient consultations.</string>
-</dict>
+			</dict>
+		</dict>
+	</dict>
 	<key>NSMotionUsageDescription</key>
 	<string>RecovFit requires motion access to accurately track your daily steps and physical activity.</string>
 	<key>NSCameraUsageDescription</key>

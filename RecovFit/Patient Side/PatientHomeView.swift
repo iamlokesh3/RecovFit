@@ -32,9 +32,6 @@ struct PatientHomeView: View {
             setupAnimations()
             healthManager.startRealTimeUpdates()
         }
-        .onDisappear {
-            healthManager.stopPeriodicUpdates()
-        }
         .sheet(isPresented: $showingStepsGoalPicker) {
             StepsGoalPickerView(healthManager: healthManager)
         }
@@ -125,6 +122,9 @@ struct PatientHomeView: View {
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 32) {
                     greetingSection
+                    if healthManager.isPermissionDenied {
+                        motionPermissionBanner
+                    }
                     realTimeStepsSection
                     realTimeSleepSection
                     statusCardsSection
@@ -133,6 +133,9 @@ struct PatientHomeView: View {
                 }
                 .padding(.vertical, 20)
                 .padding(.horizontal, 24)
+            }
+            .refreshable {
+                healthManager.refreshAllData()
             }
         }
     }
@@ -166,6 +169,47 @@ struct PatientHomeView: View {
         }
     }
     
+    // MARK: - Motion Permission Banner
+    private var motionPermissionBanner: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "figure.walk.motion")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.orange)
+            
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Motion Permission Needed")
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .foregroundStyle(.primary)
+                Text("Allow Motion & Fitness in Settings to track your steps when walking.")
+                    .font(.system(.caption, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .font(.system(.caption, design: .rounded, weight: .bold))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Color.orange)
+            .foregroundStyle(.white)
+            .clipShape(Capsule())
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.orange.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                )
+        )
+    }
+    
     // MARK: - Real-time Steps Section
     private var realTimeStepsSection: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -176,10 +220,27 @@ struct PatientHomeView: View {
                 
                 Spacer()
                 
-                Button(action: { showingStepsGoalPicker = true }) {
-                    Image(systemName: "gear")
-                        .font(.title3)
-                        .foregroundStyle(.blue)
+                HStack(spacing: 12) {
+                    Button(action: {
+                        let impact = UIImpactFeedbackGenerator(style: .medium)
+                        impact.impactOccurred()
+                        healthManager.refreshAllData()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.teal)
+                            .rotationEffect(.degrees(healthManager.isRefreshing ? 360 : 0))
+                            .animation(healthManager.isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: healthManager.isRefreshing)
+                            .frame(width: 32, height: 32)
+                            .background(Color.teal.opacity(0.12))
+                            .clipShape(Circle())
+                    }
+                    
+                    Button(action: { showingStepsGoalPicker = true }) {
+                        Image(systemName: "gear")
+                            .font(.title3)
+                            .foregroundStyle(.blue)
+                    }
                 }
             }
             
@@ -227,14 +288,31 @@ struct PatientHomeView: View {
                 
                 Spacer()
                 
-                VStack {
-                    Circle()
-                        .fill(healthManager.isLiveTracking ? .green : .teal)
-                        .frame(width: 8, height: 8)
-                    Text(healthManager.isLiveTracking ? "Live" : "Active")
-                        .font(.system(.caption2, design: .rounded, weight: .bold))
-                        .foregroundStyle(healthManager.isLiveTracking ? .green : .teal)
+                Button(action: {
+                    if healthManager.isPermissionDenied {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } else {
+                        healthManager.refreshAllData()
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(healthManager.isPermissionDenied ? .orange : (healthManager.isLiveTracking ? .green : .teal))
+                            .frame(width: 8, height: 8)
+                        Text(healthManager.isPermissionDenied ? "Needs Access" : (healthManager.isLiveTracking ? "Live" : "Active"))
+                            .font(.system(.caption2, design: .rounded, weight: .bold))
+                            .foregroundStyle(healthManager.isPermissionDenied ? .orange : (healthManager.isLiveTracking ? .green : .teal))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        (healthManager.isPermissionDenied ? Color.orange : (healthManager.isLiveTracking ? Color.green : Color.teal)).opacity(0.12)
+                    )
+                    .clipShape(Capsule())
                 }
+                .buttonStyle(.plain)
             }
             
             VStack(alignment: .leading, spacing: 8) {
