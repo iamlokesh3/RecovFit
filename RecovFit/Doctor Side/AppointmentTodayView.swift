@@ -1132,34 +1132,37 @@ struct EnhancedQuickActions: View {
     }
 
     private func whatsappPatient(patientName: String, doctorName: String?, number: String) {
-        // Clean phone number
-        let cleanedNumber = number.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+        // Clean phone number (strip spaces, dashes, symbols)
+        var cleanedNumber = number.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
         
-        // Dynamic message
-        let message = """
-        Hello \(patientName),
+        // Remove leading 0 if 11 digits
+        if cleanedNumber.hasPrefix("0") && cleanedNumber.count == 11 {
+            cleanedNumber = String(cleanedNumber.dropFirst())
+        }
         
-        We are from the RecovFit app. Your appointment with \(doctorName ?? "Doctor") is starting now.
-        /Users/saill1/Downloads/RecovFit /RecovFit/Doctor Side  
-        Please join the session via video call.
-        """
+        // WhatsApp strictly requires international country code without + (e.g. 91 for India)
+        if cleanedNumber.count == 10 {
+            cleanedNumber = "91" + cleanedNumber
+        }
         
-        // Encode message
-        let encodedMessage = message.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // Professional message without stray file paths
+        let message = "Hello \(patientName), this is from RecovFit. Your appointment with \(doctorName ?? "Doctor") is starting now. Please join your consultation session."
         
-        // WhatsApp app URL
-        let urlString = "whatsapp://send?phone=\(cleanedNumber)&text=\(encodedMessage)"
+        // Fully percent-encode message so query parameters are valid
+        var allowedQuery = CharacterSet.urlQueryAllowed
+        allowedQuery.remove(charactersIn: "!*'();:@&=+$,/?%#[]")
+        let encodedMessage = message.addingPercentEncoding(withAllowedCharacters: allowedQuery) ?? ""
         
-        if let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) {
-            UIApplication.shared.open(url)
+        // Construct both WhatsApp scheme and wa.me universal link
+        let whatsappScheme = "whatsapp://send?phone=\(cleanedNumber)&text=\(encodedMessage)"
+        let waMeLink = "https://wa.me/\(cleanedNumber)?text=\(encodedMessage)"
+        
+        if let whatsappURL = URL(string: whatsappScheme), UIApplication.shared.canOpenURL(whatsappURL) {
+            UIApplication.shared.open(whatsappURL, options: [:], completionHandler: nil)
+        } else if let waMeURL = URL(string: waMeLink) {
+            UIApplication.shared.open(waMeURL, options: [:], completionHandler: nil)
         } else {
-            // Fallback to WhatsApp Web
-            let webUrlString = "https://wa.me/\(cleanedNumber)?text=\(encodedMessage)"
-            if let webUrl = URL(string: webUrlString), UIApplication.shared.canOpenURL(webUrl) {
-                UIApplication.shared.open(webUrl)
-            } else {
-                print("Cannot open WhatsApp or Web for this number.")
-            }
+            print("Cannot open WhatsApp for number: \(cleanedNumber)")
         }
     }
 }

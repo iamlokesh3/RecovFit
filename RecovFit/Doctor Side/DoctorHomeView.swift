@@ -34,25 +34,32 @@ struct DoctorHomeView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                switch selectedTab {
-                case .home:
-                    homeContent
-                case .schedule:
-                    DoctorScheduleView(doctorId: session.doctorId ?? "")
-                case .patient:
-                    PatientListView()
-                case .notification:
-                    NotificationView()
-                        .environmentObject(session)
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                DoctorTabBar(
-                    selectedTab: $selectedTab,
-                    path: $path,
-                    unreadNotificationCount: notificationStore.notifications.filter { $0.is_read == 0 }.count
-                )
+            TabView(selection: $selectedTab) {
+                homeContent
+                    .tabItem {
+                        Label("Home", systemImage: "house.fill")
+                    }
+                    .tag(DoctorTabBar.Tab.home)
+
+                DoctorScheduleView(doctorId: session.doctorId ?? "")
+                    .tabItem {
+                        Label("Schedule", systemImage: "calendar")
+                    }
+                    .tag(DoctorTabBar.Tab.schedule)
+
+                PatientListView()
+                    .tabItem {
+                        Label("Patient", systemImage: "person.fill")
+                    }
+                    .tag(DoctorTabBar.Tab.patient)
+
+                NotificationView(store: notificationStore)
+                    .environmentObject(session)
+                    .tabItem {
+                        Label("Notification", systemImage: "bell.fill")
+                    }
+                    .badge(notificationStore.notifications.filter { $0.is_read == 0 }.count)
+                    .tag(DoctorTabBar.Tab.notification)
             }
             .task {
                 await notificationStore.fetchFromBackend(session: session)
@@ -71,10 +78,20 @@ struct DoctorHomeView: View {
             fetchTodayAppointments()
             fetchAppointmentStats()
             startTimeTimer()
+            startNotificationPolling()
         }
     }
 
-    // MARK: - Home Content
+    // MARK: - Periodic Notification Polling for New Requests
+    private func startNotificationPolling() {
+        Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { _ in
+            Task { @MainActor in
+                await notificationStore.fetchFromBackend(session: session)
+                fetchAppointmentStats()
+            }
+        }
+    }
+
     private var homeContent: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 24) {

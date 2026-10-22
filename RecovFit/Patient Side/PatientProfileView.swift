@@ -16,6 +16,7 @@ struct PatientProfileView: View {
     @State private var isDeleting = false
     @State private var deleteErrorMessage: String?
     @State private var showDeleteError = false
+    @State private var showLogoutConfirmation = false
     
     @Binding var path: NavigationPath
     
@@ -41,10 +42,12 @@ struct PatientProfileView: View {
                     LoadingView()
                 } else if let patient = patient {
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(spacing: 24) {
+                        LazyVStack(spacing: 20) {
+                            // Top Bar with Logout Button
+                            topBarSection
+                            
                             // Profile Header
                             profileHeaderCard(patient: patient)
-                                .padding(.top, 8)
                             
                             // Quick Stats
                             quickStatsSection(patient: patient)
@@ -114,6 +117,19 @@ struct PatientProfileView: View {
                         .foregroundStyle(.primary)
                 }
             }
+        }
+        .confirmationDialog(
+            "Log Out",
+            isPresented: $showLogoutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Log Out", role: .destructive) {
+                session.logout()
+                path = NavigationPath()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to log out of your account?")
         }
         .confirmationDialog(
             "Delete Profile",
@@ -299,12 +315,48 @@ struct PatientProfileView: View {
         }
     }
     
+    // MARK: - Top Bar Section with Menu
+    private var topBarSection: some View {
+        HStack(alignment: .center) {
+            Text("Patient Profile")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            Menu {
+                Button("Delete Profile", systemImage: "trash.fill", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+                .disabled(isDeleting)
+                
+                Button("Logout", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    showLogoutConfirmation = true
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color(.secondarySystemBackground))
+                        .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 2)
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.primary)
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+    }
+
     // MARK: - Action Buttons Section
     private func actionButtonsSection() -> some View {
-        VStack(spacing: 12) {
-            // Primary Action Button
+        VStack(spacing: 14) {
+            // Edit Profile Button
             Button(action: { detailNav = true }) {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "pencil.circle.fill")
                         .font(.title3)
                     Text("Edit Profile")
@@ -326,6 +378,40 @@ struct PatientProfileView: View {
             .navigationDestination(isPresented: $detailNav) {
                 PatientDetailView(patientId: patientId, path: $path)
             }
+
+            // Bottom Log Out Button
+            Button(action: {
+                showLogoutConfirmation = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.title3)
+                    Text("Log Out")
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.red.opacity(0.1))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.red.opacity(0.25), lineWidth: 1.5)
+                        )
+                )
+                .foregroundColor(.red)
+            }
+            
+            // Delete Profile Button
+            Button(role: .destructive, action: {
+                showDeleteConfirmation = true
+            }) {
+                Text("Delete Account Permanently")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 4)
+            .disabled(isDeleting)
         }
     }
     

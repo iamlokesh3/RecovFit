@@ -98,7 +98,9 @@ struct ChatBotView: View {
             }
         }
         .onAppear {
-            messages.append(ChatMessage(text: "👋 Hello! How are you feeling today?", isUser: false))
+            if messages.isEmpty {
+                messages.append(ChatMessage(text: "👋 Hello! How are you feeling today?", isUser: false))
+            }
         }
     }
 
@@ -187,7 +189,12 @@ struct ChatBotView: View {
 // MARK: - API Handler
 class OpenRouterService {
     static let shared = OpenRouterService()
-    private let apiToken = "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"
+    private var apiToken: String {
+        if let token = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"], !token.isEmpty {
+            return token
+        }
+        return "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"
+    }
     private let endpoint = "https://openrouter.ai/api/v1/chat/completions"
 
     func sendMessage(prompt: String, completion: @escaping (String) -> Void) {

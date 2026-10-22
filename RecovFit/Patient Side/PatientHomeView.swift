@@ -82,23 +82,31 @@ struct PatientHomeView: View {
     
     // MARK: - Main Content
     private var mainContent: some View {
-        VStack(spacing: 0) {
-            switch selectedTab {
-            case .home:
-                homeContent
-            case .chatBot:
-                ChatBotView()
-            case .profile:
-                PatientProfileView(patientId: patientId, path: $path)
-            case .notification:
-                NotificationView()
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
-            PatientTabBar(
-                selectedTab: $selectedTab,
-                unreadNotificationCount: notificationStore.notifications.filter { $0.is_read == 0 }.count
-            )
+        TabView(selection: $selectedTab) {
+            homeContent
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
+                .tag(PatientTabBar.Tab.home)
+
+            ChatBotView()
+                .tabItem {
+                    Label("Chatbot", systemImage: "message.fill")
+                }
+                .tag(PatientTabBar.Tab.chatBot)
+
+            PatientProfileView(patientId: patientId, path: $path)
+                .tabItem {
+                    Label("Profile", systemImage: "person.crop.circle.fill")
+                }
+                .tag(PatientTabBar.Tab.profile)
+
+            NotificationView(store: notificationStore)
+                .tabItem {
+                    Label("Notification", systemImage: "bell.fill")
+                }
+                .badge(notificationStore.notifications.filter { $0.is_read == 0 }.count)
+                .tag(PatientTabBar.Tab.notification)
         }
         .task {
             await notificationStore.fetchFromBackend(session: session)
@@ -221,11 +229,11 @@ struct PatientHomeView: View {
                 
                 VStack {
                     Circle()
-                        .fill(.green)
+                        .fill(healthManager.isLiveTracking ? .green : .teal)
                         .frame(width: 8, height: 8)
-                    Text("Live")
+                    Text(healthManager.isLiveTracking ? "Live" : "Active")
                         .font(.system(.caption2, design: .rounded, weight: .bold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(healthManager.isLiveTracking ? .green : .teal)
                 }
             }
             
